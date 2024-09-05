@@ -1,0 +1,13 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "prettier": {
+    "printWidth": 120
+  },
+  "dependencies": {
+    "wrangler": "^3.74.0"
+  }
+}
