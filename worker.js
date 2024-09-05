@@ -1,6 +1,6 @@
 export default {
   async fetch(request, env) {
-    const { WEBHOOK_VERIFY_TOKEN, GRAPH_API_TOKEN, OPENAI_API_KEY } = env;
+    const { WEBHOOK_VERIFY_TOKEN, ACCESS_TOKEN, OPENAI_API_KEY } = env;
     const url = new URL(request.url);
 
     if (request.method == "GET" && url.pathname == "/") {
@@ -53,7 +53,7 @@ export default {
         await fetch(`https://graph.facebook.com/v18.0/${business_phone_number_id}/messages`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${GRAPH_API_TOKEN}`,
+            Authorization: `Bearer ${ACCESS_TOKEN}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -70,7 +70,7 @@ export default {
         await fetch(`https://graph.facebook.com/v18.0/${business_phone_number_id}/messages`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${GRAPH_API_TOKEN}`,
+            Authorization: `Bearer ${ACCESS_TOKEN}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
