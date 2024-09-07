@@ -67,11 +67,13 @@ export default {
       } else {
         return new Response("Not Found", { status: 404 });
       }
+      const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
       const response = await fetch("https://llmfoundry.straive.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${LLMFOUNDRY_TOKEN}:whatsllm`,
           "Content-Type": "application/json",
+          "X-WhatsApp-User": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
