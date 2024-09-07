@@ -73,7 +73,8 @@ export default {
         headers: {
           Authorization: `Bearer ${LLMFOUNDRY_TOKEN}:whatsllm`,
           "Content-Type": "application/json",
-          "X-WhatsApp-User": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
+          "X-WhatsApp-From": message?.from ?? "",
+          "X-WhatsApp-Contacts": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
