@@ -1,3 +1,67 @@
+import { generateManuscriptHistory } from "./servicedesk.js";
+
+// toolList is the list of tools that the agent can use.
+// It's an object of TOOL_NAME: { description: "DESCRIPTION", action: (content, token) => RESPONSE }
+const toolList = {
+  HELP: {
+    description: "Greet users, explain what you can do.",
+    action: async ({ content, token }) =>
+      llm(
+        [
+          {
+            role: "system",
+            content: `You are WhatsLLM, a WhatsApp assistant. You can:
+${capabilities}
+
+Respond to the the user's message.`,
+          },
+          { role: "user", content },
+        ],
+        token,
+      ),
+  },
+
+  PAPER_STATUS: {
+    description: "Check status of user's paper, book, or manuscript.",
+    action: async ({ content, token, sender }) => {
+      const history = await generateManuscriptHistory(+sender);
+      return await llm(
+        [
+          {
+            role: "system",
+            content: `Reply using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
+          },
+          { role: "user", content },
+        ],
+        token,
+      );
+    },
+  },
+
+  CHAT: {
+    description: "Answer any question using text and images.",
+    action: async ({ content, token }) => await llm([{ role: "user", content }], token),
+  },
+};
+
+// capabilities lists TOOL_NAME: DESCRIPTION, one per line
+const capabilities = Object.entries(toolList)
+  .map(([key, info]) => `${key}: ${info.description}`)
+  .join("\n");
+
+// llm(messages) calls GPT-4o-mini with the given messages and returns the response
+async function llm(messages, token) {
+  const response = await fetch("https://llmfoundry.straive.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}:whatsllm`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ model: "gpt-4o-mini", messages }),
+  }).then((res) => res.json());
+  return response.choices?.[0]?.message?.content ?? response.error?.message ?? JSON.stringify(response);
+}
+
 export default {
   async fetch(request, env) {
     const { WEBHOOK_VERIFY_TOKEN, ACCESS_TOKEN, LLMFOUNDRY_TOKEN } = env;
@@ -42,17 +106,20 @@ export default {
       const message = body.entry?.[0]?.changes[0]?.value?.messages?.[0];
       const statuses = body.entry?.[0]?.changes[0]?.value?.statuses;
 
+      // Fetch the content based on the type of message
       if (message?.type === "image") {
         const { url, mime_type } = await api(message.image.id);
         let response = await fetch(url, {
           headers: { Authorization: `Bearer ${ACCESS_TOKEN}`, "User-Agent": "curl/7.64.1" },
         });
+        // Convert the image to base64. String.fromCharCode fails for large arrays, so chunk it.
         const buffer = await response.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         const binaryArray = [];
         for (let i = 0; i < bytes.length; i += 10000)
           binaryArray.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 10000)));
         const base64 = btoa(binaryArray.join(""));
+        // Get the image and text
         content = [
           {
             type: "image_url",
@@ -67,20 +134,41 @@ export default {
       } else {
         return new Response("Not Found", { status: 404 });
       }
+
       const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
-      const response = await fetch("https://llmfoundry.straive.com/openai/v1/chat/completions", {
+      // Call Llama 3.1 8b to get the function call
+      const tool_response = await fetch("https://llmfoundry.straive.com/groq/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${LLMFOUNDRY_TOKEN}:whatsllm`,
+          Authorization: `Bearer ${LLMFOUNDRY_TOKEN}:whatsllm-toolpicker`,
           "Content-Type": "application/json",
           "X-WhatsApp-From": message?.from ?? "",
           "X-WhatsApp-Contacts": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content }],
+          model: "llama-3.1-8b-instant",
+          messages: [
+            {
+              role: "system",
+              content: `You route WhatsApp requests to the right agent. Here are the agents:
+${capabilities}
+
+Respond with ONLY the agent's name (e.g. "HELP", "CHAT", ...). Here is the WhatsApp message.`,
+            },
+            { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
+          ],
         }),
       }).then((res) => res.json());
+
+      // Call the right tool, defaulting to the last
+      const toolRegex = new RegExp(`\\b(${Object.keys(toolList).join("|")})\\b`, "g");
+      const tool_text = tool_response.choices?.[0]?.message?.content ?? "";
+      const tool = tool_text.match(toolRegex)?.[0];
+      const response = await (toolList[tool] ?? Object.keys(toolList).at(-1)).action({
+        content,
+        token: LLMFOUNDRY_TOKEN,
+        sender: message.from,
+      });
 
       // Send reply message
       await api(`${business_phone_number_id}/messages`, {
@@ -88,9 +176,7 @@ export default {
         body: JSON.stringify({
           messaging_product: "whatsapp",
           to: message.from,
-          text: {
-            body: response.choices?.[0]?.message?.content ?? response.error?.message ?? JSON.stringify(response),
-          },
+          text: { body: response },
           context: { message_id: message.id },
         }),
       });
