@@ -1,3 +1,5 @@
+import { llm } from "./utils.js";
+
 // Simulate a random number generator since Math.random() has no seed
 // https://stackoverflow.com/a/47593316/100904
 function splitmix32(a) {
@@ -14,7 +16,7 @@ function splitmix32(a) {
 
 const getRandomDate = (start, end, random) => new Date(start.getTime() + random() * (end.getTime() - start.getTime()));
 
-export async function generateManuscriptHistory(seed) {
+async function generateManuscriptHistory(seed) {
   const random = splitmix32(seed);
 
   const history = [];
@@ -67,3 +69,22 @@ export async function generateManuscriptHistory(seed) {
 
   return history;
 }
+
+export const tools = {
+  PAPER_STATUS: {
+    description: "Check status of user's paper, book, or manuscript.",
+    action: async ({ content, token, sender }) => {
+      const history = await generateManuscriptHistory(+sender);
+      return await llm(
+        [
+          {
+            role: "system",
+            content: `Reply using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
+          },
+          { role: "user", content },
+        ],
+        token,
+      );
+    },
+  },
+};

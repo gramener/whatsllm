@@ -1,4 +1,8 @@
-import { generateManuscriptHistory } from "./servicedesk.js";
+import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
+import manifestJSON from "__STATIC_CONTENT_MANIFEST";
+const assetManifest = JSON.parse(manifestJSON);
+import { tools as servicedeskTools } from "./servicedesk.js";
+import { llm } from "./utils.js";
 
 // toolList is the list of tools that the agent can use.
 // It's an object of TOOL_NAME: { description: "DESCRIPTION", action: (content, token) => RESPONSE }
@@ -21,22 +25,8 @@ Respond to the the user's message.`,
       ),
   },
 
-  PAPER_STATUS: {
-    description: "Check status of user's paper, book, or manuscript.",
-    action: async ({ content, token, sender }) => {
-      const history = await generateManuscriptHistory(+sender);
-      return await llm(
-        [
-          {
-            role: "system",
-            content: `Reply using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
-          },
-          { role: "user", content },
-        ],
-        token,
-      );
-    },
-  },
+  // Import specific tools
+  ...servicedeskTools,
 
   CHAT: {
     description: "Answer any question using text and images.",
@@ -49,21 +39,8 @@ const capabilities = Object.entries(toolList)
   .map(([key, info]) => `${key}: ${info.description}`)
   .join("\n");
 
-// llm(messages) calls GPT-4o-mini with the given messages and returns the response
-async function llm(messages, token) {
-  const response = await fetch("https://llmfoundry.straive.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}:whatsllm`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model: "gpt-4o-mini", messages }),
-  }).then((res) => res.json());
-  return response.choices?.[0]?.message?.content ?? response.error?.message ?? JSON.stringify(response);
-}
-
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const { WEBHOOK_VERIFY_TOKEN, ACCESS_TOKEN, LLMFOUNDRY_TOKEN } = env;
     const url = new URL(request.url);
 
@@ -73,28 +50,30 @@ export default {
         ...options,
       }).then((res) => res.json());
 
-    if (request.method == "GET" && url.pathname == "/") {
-      return new Response(
-        "<h1>WhatsLLM</h1><p>See <a href='https://github.com/gramener/whatsllm'>github.com/gramener/whatsllm</a> for details</p>",
-        {
-          headers: { "Content-Type": "text/html" },
-          status: 200,
-        },
-      );
-    }
+    if (request.method == "GET") {
+      // Handle webhook verification
+      if (url.pathname === "/webhook") {
+        const mode = url.searchParams.get("hub.mode");
+        const token = url.searchParams.get("hub.verify_token");
+        const challenge = url.searchParams.get("hub.challenge");
 
-    // Handle webhook verification
-    if (request.method === "GET" && url.pathname === "/webhook") {
-      const mode = url.searchParams.get("hub.mode");
-      const token = url.searchParams.get("hub.verify_token");
-      const challenge = url.searchParams.get("hub.challenge");
+        // Check the mode and token sent are correct
+        if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
+          console.log("Webhook verified successfully!");
+          return new Response(challenge, { status: 200 });
+        } else {
+          return new Response("Forbidden", { status: 403 });
+        }
+      }
 
-      // Check the mode and token sent are correct
-      if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
-        console.log("Webhook verified successfully!");
-        return new Response(challenge, { status: 200 });
-      } else {
-        return new Response("Forbidden", { status: 403 });
+      // Serve static assets if applicable
+      try {
+        return await getAssetFromKV(
+          { request, waitUntil: ctx.waitUntil.bind(ctx) },
+          { ASSET_NAMESPACE: env.__STATIC_CONTENT, ASSET_MANIFEST: assetManifest },
+        );
+      } catch {
+        return new Response("Not Found", { status: 404 });
       }
     }
 
