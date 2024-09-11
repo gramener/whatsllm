@@ -1,8 +1,9 @@
 import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
-import manifestJSON from "__STATIC_CONTENT_MANIFEST";
-const assetManifest = JSON.parse(manifestJSON);
 import { tools as servicedeskTools } from "./servicedesk.js";
-import { llm } from "./utils.js";
+import { openai, groq } from "./utils.js";
+import manifestJSON from "__STATIC_CONTENT_MANIFEST";
+
+const assetManifest = JSON.parse(manifestJSON);
 
 // toolList is the list of tools that the agent can use.
 // It's an object of TOOL_NAME: { description: "DESCRIPTION", action: (content, token) => RESPONSE }
@@ -10,14 +11,14 @@ const toolList = {
   HELP: {
     description: "Greet users, explain what you can do.",
     action: async ({ content, token }) =>
-      llm(
+      openai(
         [
           {
             role: "system",
             content: `You are WhatsLLM, a WhatsApp assistant. You can:
 ${capabilities}
 
-Respond to the the user's message.`,
+Respond to the the user's message, sharing your capabilities.`,
           },
           { role: "user", content },
         ],
@@ -28,9 +29,25 @@ Respond to the the user's message.`,
   // Import specific tools
   ...servicedeskTools,
 
-  CHAT: {
-    description: "Answer any question using text and images.",
-    action: async ({ content, token }) => await llm([{ role: "user", content }], token),
+  // CHAT: {
+  //   description: "Answer to questions using text and images.",
+  //   action: async ({ content, token }) => await openai([{ role: "user", content }], token),
+  // },
+
+  NONE: {
+    description: "Handle ANY question that don't match any of the above",
+    action: async ({ content, token }) =>
+      await openai(
+        [
+          {
+            role: "system",
+            content: `Explain that you can't help with the user query. That you can't read previous chat messages. Explain your capabilities from below:
+${capabilities}`,
+          },
+          { role: "user", content },
+        ],
+        token,
+      ),
   },
 };
 
@@ -95,8 +112,7 @@ export default {
         const buffer = await response.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         const binaryArray = [];
-        for (let i = 0; i < bytes.length; i += 10000)
-          binaryArray.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 10000)));
+        for (let i = 0; i < bytes.length; i += 10000) binaryArray.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 10000)));
         const base64 = btoa(binaryArray.join(""));
         // Get the image and text
         content = [
@@ -116,33 +132,27 @@ export default {
 
       const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
       // Call Llama 3.1 8b to get the function call
-      const tool_response = await fetch("https://llmfoundry.straive.com/groq/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LLMFOUNDRY_TOKEN}:whatsllm-toolpicker`,
-          "Content-Type": "application/json",
+      const toolText = await groq(
+        [
+          {
+            role: "system",
+            content: `You route WhatsApp requests to the right agent. Here are the agents:
+${capabilities}
+
+Pick the best agent to reply to this WhatsApp message. Respond with ONLY the agent's name (e.g. "HELP", "CHAT", ...).`,
+          },
+          { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
+        ],
+        LLMFOUNDRY_TOKEN,
+        {
           "X-WhatsApp-From": message?.from ?? "",
           "X-WhatsApp-Contacts": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
         },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [
-            {
-              role: "system",
-              content: `You route WhatsApp requests to the right agent. Here are the agents:
-${capabilities}
-
-Respond with ONLY the agent's name (e.g. "HELP", "CHAT", ...). Here is the WhatsApp message.`,
-            },
-            { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
-          ],
-        }),
-      }).then((res) => res.json());
+      );
 
       // Call the right tool, defaulting to the last
       const toolRegex = new RegExp(`\\b(${Object.keys(toolList).join("|")})\\b`, "g");
-      const tool_text = tool_response.choices?.[0]?.message?.content ?? "";
-      const tool = tool_text.match(toolRegex)?.[0];
+      const tool = toolText.match(toolRegex)?.[0];
       const response = await (toolList[tool] ?? Object.keys(toolList).at(-1)).action({
         content,
         token: LLMFOUNDRY_TOKEN,

@@ -5,7 +5,7 @@
     "deploy": "wrangler deploy"
   },
   "prettier": {
-    "printWidth": 120
+    "printWidth": 150
   },
   "dependencies": {
     "wrangler": "^3.74.0"

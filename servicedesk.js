@@ -1,4 +1,4 @@
-import { llm } from "./utils.js";
+import { openai } from "./utils.js";
 
 // Simulate a random number generator since Math.random() has no seed
 // https://stackoverflow.com/a/47593316/100904
@@ -71,11 +71,23 @@ async function generateManuscriptHistory(seed) {
 }
 
 export const tools = {
+  MANUSCRIPT_GUIDELINES: {
+    description: "Guidance on templates, book structure, and search engine optimization.",
+    action: answerFrom("https://www.springernature.com/gp/authors/publish-a-book/manuscript-guidelines"),
+  },
+  LATEX_HELP: {
+    description: "LaTeX guidelines for user's paper, book, or manuscript.",
+    action: answerFrom("https://www.springernature.com/gp/authors/campaigns/latex-author-support"),
+  },
+  PUBLISHING_COST: {
+    description: "Explain publication costs, article processing charges, etc.",
+    action: contactUs,
+  },
   PAPER_STATUS: {
     description: "Check status of user's paper, book, or manuscript.",
     action: async ({ content, token, sender }) => {
       const history = await generateManuscriptHistory(+sender);
-      return await llm(
+      return await openai(
         [
           {
             role: "system",
@@ -87,4 +99,109 @@ export const tools = {
       );
     },
   },
+  CORRECTIONS: {
+    description: "Handle correction requests from editorial to post-publication.",
+    action: contactUs,
+  },
+  COMPLEMENTARY_EBOOK: {
+    description: "Provide author a complementary ebook download link.",
+    action: async ({ content, token, sender }) => {
+      return await openai(
+        [
+          {
+            role: "system",
+            content:
+              "Reply and share this eBook download link: https://resource-cms.springernature.com/springer-cms/rest/v1/content/16687326/data/v9",
+          },
+          { role: "user", content },
+        ],
+        token,
+      );
+    },
+  },
+  CHAPTER_LINK: {
+    description: "Provide author a link to share specific articles/chapter copies as attachment.",
+    action: raiseTicket,
+  },
+  DISCOUNT: {
+    description: "Share author discount code for next purchase.",
+    action: answerFrom(
+      "https://support.springernature.com/en/support/solutions/articles/6000257425-how-to-get-your-author-discount-on-our-springerlink-webshop",
+    ),
+  },
+  COMPLEMENTARY_BOOK: {
+    description: "Provide author complementary book copies.",
+    action: raiseTicket,
+  },
+  SALES_QUERY: {
+    description: "Shale number of copies sold",
+    action: fakeReply,
+  },
+  REMUNERATION_QUERY: {
+    description: "Share author remunerations and royalties",
+    action: contactUs,
+  },
+  INVOICE_COPY: {
+    description: "Share invoice/receipt copy",
+    action: async ({ content, token, sender }) => {
+      return await openai(
+        [
+          { role: "system", content: "Reply with a link to this invoie: https://slicedinvoices.com/pdf/wordpress-pdf-invoice-plugin-sample.pdf" },
+          { role: "user", content },
+        ],
+        token,
+      );
+    },
+  },
+  INVOICE_CORRECTION: {
+    description: "Handle correction to invoice (VAT, address change, discount issues, etc.)",
+    action: contactUs,
+  },
 };
+
+async function fetchMarkdown(url) {
+  return await fetch(`https://llmfoundry.straive.com/-/markdown?url=${encodeURIComponent(url)}`).then((res) => res.text());
+}
+
+function answerFrom(url) {
+  return async ({ content, token, sender }) => {
+    const page = await fetchMarkdown(url);
+    return await openai(
+      [
+        { role: "system", content: `<CONTEXT>\n${page}\n</CONTEXT>\n\nAnswer this question ONLY using this context.` },
+        { role: "user", content },
+      ],
+      token,
+    );
+  };
+}
+
+async function contactUs({ content, token, sender }) {
+  return await openai(
+    [
+      { role: "system", content: "Reply asking the user to contact the us on email/chat" },
+      { role: "user", content },
+    ],
+    token,
+  );
+}
+
+async function raiseTicket({ content, token, sender }) {
+  return await openai(
+    [
+      { role: "system", content: "Reply by saying you've raised a ticket and share a random ticket number" },
+      { role: "user", content },
+    ],
+    token,
+  );
+}
+
+async function fakeReply({ content, token, sender }) {
+  return await openai(
+    [
+      { role: "system", content: "Reply with a realistic, detailed, and convincing fake answer" },
+      { role: "user", content },
+    ],
+    token,
+  );
+}
