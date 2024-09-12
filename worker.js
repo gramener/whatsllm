@@ -10,29 +10,47 @@ const assetManifest = JSON.parse(manifestJSON);
 const toolList = {
   HELP: {
     description: "Greet users, explain what you can do.",
-    action: async ({ content, token }) =>
-      openai(
-        [
-          {
-            role: "system",
-            content: `You are WhatsLLM, a WhatsApp assistant. You can:
-${capabilities}
-
-Respond to the the user's message, sharing your capabilities.`,
+    action: async () => {
+      // Get first 10 tools except HELP
+      const toolKeys = Object.keys(toolList)
+        .filter((key) => key !== "HELP")
+        .slice(0, 10);
+      return {
+        type: "interactive",
+        interactive: {
+          type: "list",
+          header: {
+            type: "text",
+            text: "Author Assist",
           },
-          { role: "user", content },
-        ],
-        token,
-      ),
+          body: {
+            text: "Welcome to Author Assist. Here are some questions you can ask. Or, you could just ask anything and I'll try to help.",
+          },
+          action: {
+            button: "View Tools",
+            sections: [
+              {
+                title: "Tools",
+                rows: toolKeys.map((key) => ({
+                  id: key,
+                  title: key,
+                  description: toolList[key].question,
+                })),
+              },
+            ],
+          },
+        },
+      };
+    },
   },
 
   // Import specific tools
   ...servicedeskTools,
 
-  // CHAT: {
-  //   description: "Answer to questions using text and images.",
-  //   action: async ({ content, token }) => await openai([{ role: "user", content }], token),
-  // },
+  CHAT: {
+    description: "Answer to questions using text and images.",
+    action: async ({ content, token }) => await openai([{ role: "user", content }], token),
+  },
 
   NONE: {
     description: "Handle ANY question that don't match any of the above",
@@ -124,6 +142,8 @@ export default {
         ];
       } else if (message?.type === "text") {
         content = [{ type: "text", text: message.text.body }];
+      } else if (message?.type === "interactive") {
+        content = [{ type: "text", text: message.interactive.list_reply.title }];
       } else if (statuses) {
         return new Response(null, { status: 200 });
       } else {
@@ -159,16 +179,27 @@ Pick the best agent to reply to this WhatsApp message. Respond with ONLY the age
         sender: message.from,
       });
 
-      // Send reply message
-      await api(`${business_phone_number_id}/messages`, {
-        method: "POST",
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          to: message.from,
-          text: { body: response },
-          context: { message_id: message.id },
-        }),
-      });
+      if (typeof response === "object") {
+        await api(`${business_phone_number_id}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: message.from,
+            ...response,
+          }),
+        });
+      } else {
+        // Send reply message
+        await api(`${business_phone_number_id}/messages`, {
+          method: "POST",
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: message.from,
+            text: { body: response },
+            context: { message_id: message.id },
+          }),
+        });
+      }
 
       // Mark incoming message as read
       await api(`${business_phone_number_id}/messages`, {

@@ -71,27 +71,31 @@ async function generateManuscriptHistory(seed) {
 }
 
 export const tools = {
-  MANUSCRIPT_GUIDELINES: {
+  "MANUSCRIPT GUIDELINES": {
     description: "Guidance on templates, book structure, and search engine optimization.",
+    question: "What are the manuscript submission guidelines?",
     action: answerFrom("https://www.springernature.com/gp/authors/publish-a-book/manuscript-guidelines"),
   },
-  LATEX_HELP: {
+  "LATEX HELP": {
     description: "LaTeX guidelines for user's paper, book, or manuscript.",
+    question: "How can I get LaTeX help for my manuscript?",
     action: answerFrom("https://www.springernature.com/gp/authors/campaigns/latex-author-support"),
   },
-  PUBLISHING_COST: {
+  "PUBLISHING COST": {
     description: "Explain publication costs, article processing charges, etc.",
+    question: "What are the publication costs for my book?",
     action: contactUs,
   },
-  PAPER_STATUS: {
+  "PAPER STATUS": {
     description: "Check status of user's paper, book, or manuscript.",
+    question: "What is the status of my manuscript?",
     action: async ({ content, token, sender }) => {
       const history = await generateManuscriptHistory(+sender);
       return await openai(
         [
           {
             role: "system",
-            content: `Reply using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
+            content: `Reply briefly, then in detail, using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
           },
           { role: "user", content },
         ],
@@ -101,11 +105,13 @@ export const tools = {
   },
   CORRECTIONS: {
     description: "Handle correction requests from editorial to post-publication.",
+    question: "How do I request corrections to my published article?",
     action: contactUs,
   },
-  COMPLEMENTARY_EBOOK: {
+  "COMPLEMENTARY EBOOK": {
     description: "Provide author a complementary ebook download link.",
-    action: async ({ content, token, sender }) => {
+    question: "How can I download a complimentary eBook?",
+    action: async ({ content, token }) => {
       return await openai(
         [
           {
@@ -119,42 +125,52 @@ export const tools = {
       );
     },
   },
-  CHAPTER_LINK: {
+  "CHAPTER LINK": {
     description: "Provide author a link to share specific articles/chapter copies as attachment.",
+    question: "Can I share a chapter from my book as a download link?",
     action: raiseTicket,
   },
   DISCOUNT: {
     description: "Share author discount code for next purchase.",
+    question: "How can I get an author discount for my next purchase?",
     action: answerFrom(
       "https://support.springernature.com/en/support/solutions/articles/6000257425-how-to-get-your-author-discount-on-our-springerlink-webshop",
     ),
   },
-  COMPLEMENTARY_BOOK: {
+  "COMPLEMENTARY BOOK": {
     description: "Provide author complementary book copies.",
+    question: "How many copies of my book have been sold?",
     action: raiseTicket,
   },
-  SALES_QUERY: {
-    description: "Shale number of copies sold",
+  "SALES QUERY": {
+    description: "Share number of copies sold",
+    question: "How many copies of my book have been sold?",
     action: fakeReply,
   },
-  REMUNERATION_QUERY: {
+  "REMUNERATION QUERY": {
     description: "Share author remunerations and royalties",
+    question: "Could you share my remunerations and royalties?",
     action: contactUs,
   },
-  INVOICE_COPY: {
+  "INVOICE COPY": {
     description: "Share invoice/receipt copy",
-    action: async ({ content, token, sender }) => {
+    question: "Could you share a copy of my invoice?",
+    action: async ({ content, token }) => {
       return await openai(
         [
-          { role: "system", content: "Reply with a link to this invoie: https://slicedinvoices.com/pdf/wordpress-pdf-invoice-plugin-sample.pdf" },
+          {
+            role: "system",
+            content: "Reply with a link to this REAL invoice: https://slicedinvoices.com/pdf/wordpress-pdf-invoice-plugin-sample.pdf",
+          },
           { role: "user", content },
         ],
         token,
       );
     },
   },
-  INVOICE_CORRECTION: {
+  "INVOICE CORRECTION": {
     description: "Handle correction to invoice (VAT, address change, discount issues, etc.)",
+    question: "How do I raise a correction in my invoice?",
     action: contactUs,
   },
 };
@@ -164,7 +180,7 @@ async function fetchMarkdown(url) {
 }
 
 function answerFrom(url) {
-  return async ({ content, token, sender }) => {
+  return async ({ content, token }) => {
     const page = await fetchMarkdown(url);
     return await openai(
       [
@@ -176,7 +192,7 @@ function answerFrom(url) {
   };
 }
 
-async function contactUs({ content, token, sender }) {
+async function contactUs({ content, token }) {
   return await openai(
     [
       { role: "system", content: "Reply asking the user to contact the us on email/chat" },
@@ -186,7 +202,7 @@ async function contactUs({ content, token, sender }) {
   );
 }
 
-async function raiseTicket({ content, token, sender }) {
+async function raiseTicket({ content, token }) {
   return await openai(
     [
       { role: "system", content: "Reply by saying you've raised a ticket and share a random ticket number" },
@@ -196,7 +212,7 @@ async function raiseTicket({ content, token, sender }) {
   );
 }
 
-async function fakeReply({ content, token, sender }) {
+async function fakeReply({ content, token }) {
   return await openai(
     [
       { role: "system", content: "Reply with a realistic, detailed, and convincing fake answer" },
