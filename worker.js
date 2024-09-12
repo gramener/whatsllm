@@ -9,7 +9,7 @@ const assetManifest = JSON.parse(manifestJSON);
 // It's an object of TOOL_NAME: { description: "DESCRIPTION", action: (content, token) => RESPONSE }
 const toolList = {
   HELP: {
-    description: "Greet users, explain what you can do.",
+    description: "Greet users, explain capabilities, respond to short phrases (This is the default)",
     action: async () => {
       // Get first 10 tools except HELP
       const toolKeys = Object.keys(toolList)
@@ -48,24 +48,8 @@ const toolList = {
   ...servicedeskTools,
 
   CHAT: {
-    description: "Answer to questions using text and images.",
+    description: "Answer any other questions (only for images or questions longer than 3 words).",
     action: async ({ content, token }) => await openai([{ role: "user", content }], token),
-  },
-
-  NONE: {
-    description: "Handle ANY question that don't match any of the above",
-    action: async ({ content, token }) =>
-      await openai(
-        [
-          {
-            role: "system",
-            content: `Explain that you can't help with the user query. That you can't read previous chat messages. Explain your capabilities from below:
-${capabilities}`,
-          },
-          { role: "user", content },
-        ],
-        token,
-      ),
   },
 };
 

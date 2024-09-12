@@ -70,6 +70,22 @@ async function generateManuscriptHistory(seed) {
   return history;
 }
 
+async function randomPaperStatus({ content, token, sender }) {
+  const history = await generateManuscriptHistory(+sender);
+  return await openai(
+    [
+      {
+        role: "system",
+        content: `Reply briefly, then in detail, using this status history.\n\n${history
+          .map((h) => `${h.date.toGMTString()}: ${h.state}`)
+          .join("\n")}`,
+      },
+      { role: "user", content },
+    ],
+    token,
+  );
+}
+
 export const tools = {
   "MANUSCRIPT GUIDELINES": {
     description: "Guidance on templates, book structure, and search engine optimization.",
@@ -89,19 +105,19 @@ export const tools = {
   "PAPER STATUS": {
     description: "Check status of user's paper, book, or manuscript.",
     question: "What is the status of my manuscript?",
-    action: async ({ content, token, sender }) => {
-      const history = await generateManuscriptHistory(+sender);
-      return await openai(
-        [
-          {
-            role: "system",
-            content: `Reply briefly, then in detail, using this status history.\n\n${history.map((h) => `${h.date.toGMTString()}: ${h.state}`).join("\n")}`,
-          },
-          { role: "user", content },
-        ],
-        token,
-      );
-    },
+    // action: randomPaperStatus,
+    // Deterministic paper status for stability.
+    action: () => `Your paper was submitted on December 30, 2023, and has recently been reviewed. However, it was ultimately rejected on August 30, 2024.
+
+In detail, the timeline of your paper's status is as follows:
+
+1. **Submission:** The paper was submitted on December 30, 2023.
+2. **Review Phase:** On January 12, 2023, the paper was noted as "Under Review," indicating that the review process was initiated at that time.
+3. **Completion of Review:** The review process concluded on June 14, 2024.
+4. **Outcome:** Finally, the paper was rejected on August 30, 2024.
+
+Please consider feedback from reviewers (if provided) to improve your future submissions.
+`,
   },
   CORRECTIONS: {
     description: "Handle correction requests from editorial to post-publication.",
