@@ -88,6 +88,24 @@ export default {
       const message = body.entry?.[0]?.changes[0]?.value?.messages?.[0];
       const statuses = body.entry?.[0]?.changes[0]?.value?.statuses;
 
+      const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
+      let toolList;
+      if (business_phone_number_id == "405460005987272") {
+        toolList = getToolList({
+          tools: (await import("./banksupport.js")).tools,
+          header: "Bank Agent Assist",
+          body: "Hello Agent. You are meeting Emma Rodriguez at 2:00 pm. I can give you some talking points.",
+        });
+      } else {
+        toolList = getToolList({
+          tools: (await import("./servicedesk.js")).tools,
+          header: "Author Assist",
+          body: "Welcome to Author Assist. Here are some questions you can ask. Or, you could just ask anything and I'll try to help.",
+        });
+      }
+
+      let tool = message?.interactive?.list_reply?.title in toolList ? message.interactive.list_reply.title : null;
+
       // Fetch the content based on the type of message
       if (message?.type === "image") {
         const { url, mime_type } = await api(message.image.id);
@@ -118,49 +136,36 @@ export default {
         return new Response("Not Found", { status: 404 });
       }
 
-      const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
-      let toolList;
-      if (business_phone_number_id == "405460005987272") {
-        toolList = getToolList({
-          tools: (await import("./banksupport.js")).tools,
-          header: "Bank Agent Assist",
-          body: "Hello Agent. You are meeting Emma Rodriguez at 2:00 pm. I can give you some talking points.",
-        });
-      } else {
-        toolList = getToolList({
-          tools: (await import("./servicedesk.js")).tools,
-          header: "Author Assist",
-          body: "Welcome to Author Assist. Here are some questions you can ask. Or, you could just ask anything and I'll try to help.",
-        });
-      }
-      // capabilities lists TOOL_NAME: DESCRIPTION, one per line
-      const capabilities = Object.entries(toolList)
-        .map(([key, info]) => `${key}: ${info.description}`)
-        .join("\n");
-      // Call Llama 3.1 8b to get the function call
-      const toolText = await groq(
-        [
+      if (!tool) {
+        // capabilities lists TOOL_NAME: DESCRIPTION, one per line
+        const capabilities = Object.entries(toolList)
+          .map(([key, info]) => `${key}: ${info.description}`)
+          .join("\n");
+        // Call Llama 3.1 8b to get the function call
+        const toolText = await groq(
+          [
+            {
+              role: "system",
+              content: `Route the WhatsApp request to one of these FUNCTION: Description:
+  ${capabilities}
+
+  Pick the best function to reply to this WhatsApp message.
+  If FUNCTION matches exactly, use that function.
+  Respond with ONLY the function name (e.g. "HELP", "CHAT", ...).`,
+            },
+            { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
+          ],
+          LLMFOUNDRY_TOKEN,
           {
-            role: "system",
-            content: `Route the WhatsApp request to one of these FUNCTION: Description:
-${capabilities}
-
-Pick the best function to reply to this WhatsApp message.
-If FUNCTION matches exactly, use that function.
-Respond with ONLY the function name (e.g. "HELP", "CHAT", ...).`,
+            "X-WhatsApp-From": message?.from ?? "",
+            "X-WhatsApp-Contacts": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
           },
-          { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
-        ],
-        LLMFOUNDRY_TOKEN,
-        {
-          "X-WhatsApp-From": message?.from ?? "",
-          "X-WhatsApp-Contacts": contacts.map((c) => `${c.profile?.name ?? ""} (${c.wa_id})`).join(", "),
-        },
-      );
+        );
 
-      // Call the right tool, defaulting to the last
-      const toolRegex = new RegExp(`\\b(${Object.keys(toolList).join("|")})\\b`, "g");
-      const tool = toolText.match(toolRegex)?.[0];
+        // Call the right tool, defaulting to the last
+        const toolRegex = new RegExp(`\\b(${Object.keys(toolList).join("|")})\\b`, "g");
+        tool = toolText.match(toolRegex)?.[0];
+      }
       const response = await (toolList[tool] ?? Object.keys(toolList).at(-1)).action({
         content,
         token: LLMFOUNDRY_TOKEN,
