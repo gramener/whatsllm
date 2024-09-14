@@ -1,5 +1,4 @@
 import { getAssetFromKV } from "@cloudflare/kv-asset-handler";
-import { tools as servicedeskTools } from "./servicedesk.js";
 import { openai, groq } from "./utils.js";
 import manifestJSON from "__STATIC_CONTENT_MANIFEST";
 
@@ -7,56 +6,41 @@ const assetManifest = JSON.parse(manifestJSON);
 
 // toolList is the list of tools that the agent can use.
 // It's an object of TOOL_NAME: { description: "DESCRIPTION", action: (content, token) => RESPONSE }
-const toolList = {
-  HELP: {
-    description: "Greet users, explain capabilities, respond to short phrases (This is the default)",
-    action: async () => {
-      // Get first 10 tools except HELP
-      const toolKeys = Object.keys(toolList)
-        .filter((key) => key !== "HELP")
-        .slice(0, 10);
-      return {
-        type: "interactive",
-        interactive: {
-          type: "list",
-          header: {
-            type: "text",
-            text: "Author Assist",
+function getToolList({ tools, header, body }) {
+  return {
+    HELP: {
+      description: "Greet users, explain capabilities, respond to short phrases (This is the default)",
+      action: async () => {
+        // Get first 10 tools
+        const toolKeys = Object.keys(tools).slice(0, 10);
+        return {
+          type: "interactive",
+          interactive: {
+            type: "list",
+            header: { type: "text", text: header },
+            body: { text: body },
+            action: {
+              button: "View Tools",
+              sections: [
+                {
+                  title: "Tools",
+                  rows: toolKeys.map((key) => ({ id: key, title: key, description: tools[key].question })),
+                },
+              ],
+            },
           },
-          body: {
-            text: "Welcome to Author Assist. Here are some questions you can ask. Or, you could just ask anything and I'll try to help.",
-          },
-          action: {
-            button: "View Tools",
-            sections: [
-              {
-                title: "Tools",
-                rows: toolKeys.map((key) => ({
-                  id: key,
-                  title: key,
-                  description: toolList[key].question,
-                })),
-              },
-            ],
-          },
-        },
-      };
+        };
+      },
     },
-  },
 
-  // Import specific tools
-  ...servicedeskTools,
+    ...tools,
 
-  CHAT: {
-    description: "Answer any other questions (only for images or questions longer than 3 words).",
-    action: async ({ content, token }) => await openai([{ role: "user", content }], token),
-  },
-};
-
-// capabilities lists TOOL_NAME: DESCRIPTION, one per line
-const capabilities = Object.entries(toolList)
-  .map(([key, info]) => `${key}: ${info.description}`)
-  .join("\n");
+    CHAT: {
+      description: "Answer any other questions (only for images or questions longer than 3 words).",
+      action: async ({ content, token }) => await openai([{ role: "user", content }], token),
+    },
+  };
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -135,15 +119,35 @@ export default {
       }
 
       const contacts = body.entry?.[0]?.changes[0]?.value?.contacts ?? [];
+      let toolList;
+      if (business_phone_number_id == "405460005987272") {
+        toolList = getToolList({
+          tools: (await import("./banksupport.js")).tools,
+          header: "Bank Agent Assist",
+          body: "Hello Agent. You are meeting Emma Rodriguez at 2:00 pm. I can give you some talking points.",
+        });
+      } else {
+        toolList = getToolList({
+          tools: (await import("./servicedesk.js")).tools,
+          header: "Author Assist",
+          body: "Welcome to Author Assist. Here are some questions you can ask. Or, you could just ask anything and I'll try to help.",
+        });
+      }
+      // capabilities lists TOOL_NAME: DESCRIPTION, one per line
+      const capabilities = Object.entries(toolList)
+        .map(([key, info]) => `${key}: ${info.description}`)
+        .join("\n");
       // Call Llama 3.1 8b to get the function call
       const toolText = await groq(
         [
           {
             role: "system",
-            content: `You route WhatsApp requests to the right agent. Here are the agents:
+            content: `Route the WhatsApp request to one of these FUNCTION: Description:
 ${capabilities}
 
-Pick the best agent to reply to this WhatsApp message. Respond with ONLY the agent's name (e.g. "HELP", "CHAT", ...).`,
+Pick the best function to reply to this WhatsApp message.
+If FUNCTION matches exactly, use that function.
+Respond with ONLY the function name (e.g. "HELP", "CHAT", ...).`,
           },
           { role: "user", content: content.map((c) => (c.type == "image_url" ? "[IMAGE]" : c.text)).join("\n") },
         ],
