@@ -6,12 +6,19 @@ A simple LLM chatbot webhook on WhatsApp.
 
 Send a WhatsApp message to [+65 8646 2570](https://wa.me/6586462570) or [+1 555 133 0603](https://wa.me/15551330603). GPT-4o-mini will reply.
 
+## Architecture
+
+- [workers.js](workers.js) is the main entry point. It parses the incoming message, determines the appropriate tool to use, and calls the appropriate tool.
+
 ## WhatsApp Setup
 
 - Log into [Meta for Developers](https://developers.facebook.com/) and create a new app
 - Set up WhatsApp as a product
 - [Generate a system user access token](https://developers.facebook.com/docs/whatsapp/business-management-api/get-started#business-integration-system-user-access-tokens)
 - [Add the phone number](https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/add-a-phone-number) to the WhatsApp Business app and add a payment method
+- [Edit business information](https://business.facebook.com/latest/settings/whatsapp_account?business_id=354938351047080&selected_asset_id=351348618071442) and
+  [Business name](https://business.facebook.com/latest/settings/business_info?business_id=354938351047080)
+  [Photo on WhatsApp manager](https://business.facebook.com/wa/manage/phone-numbers/?business_id=354938351047080&waba_id=351348618071442&childRoute=PHONE_PROFILE%2FPROFILE&phone_number=6586462570)
 
 ## Hook Setup
 
@@ -21,6 +28,7 @@ Send a WhatsApp message to [+65 8646 2570](https://wa.me/6586462570) or [+1 555 
 - Run `npm install`
 - Run `npx wrangler secret put <key>` also add them to `.dev.vars` as `KEY=value`:
   - `WEBHOOK_VERIFY_TOKEN`: Via [Meta Developer Console](https://developers.facebook.com/apps/1247415196273061/whatsapp-business/wa-settings/?business_id=354938351047080&phone_number_id)
+    - Callback URL: <https://whatsllm.sanand.workers.dev/webhook> or an ngrok local URL /webook
   - `ACCESS_TOKEN`: Via [Meta Developer Console](https://developers.facebook.com/apps/1247415196273061/whatsapp-business/wa-dev-console/?business_id=354938351047080) -- or generated via `curl https://graph.facebook.com/oauth/access_token?client_id=1247415196273061&client_secret=$APP_SECRET&grant_type=client_credentials`
   - `LLMFOUNDRY_TOKEN`: Via [LLM Foundry](https://llmfoundry.straive.com/code)
 - Run `npm run deploy` to deploy on Cloudflare
